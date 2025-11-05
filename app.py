@@ -701,4 +701,7 @@ def download_pdf():
 if __name__ == "__main__":
     # quick check: ensure output directories exist
     os.makedirs("output", exist_ok=True)
-    app.run(debug=True)
+    
+    # Render free tier port
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
