@@ -1,0 +1,17 @@
+Flask
+google-api-python-client
+textblob
+pandas
+numpy
+matplotlib
+wordcloud
+isodate
+reportlab
+seaborn
+openpyxl
+scikit-learn
+nltk
+transformers
+torch
+sentence-transformers
+bertopic

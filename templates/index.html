@@ -1,0 +1,155 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>YouTube Comment Sentiment </title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <header class="hdr">
+      <img src="{{ url_for('static', filename='images/logo.jpg') }}" alt="logo" class="logo">
+      <div>
+        <h1>YouTube Comment Sentiment </h1>
+        <p class="muted">Channel Information</p>
+      </div>
+    </header>
+
+    <main class="card">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for cat, msg in messages %}
+            <div class="error">{{ msg }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <!-- CHANNEL INPUT -->
+      <form method="post" class="form">
+        <input name="channel_id" placeholder="Enter Channel ID (UC...)" />
+        <button type="submit">Analyze Channel</button>
+      </form>
+
+      <!-- CHANNEL OVERVIEW -->
+      {% if channel_info %}
+      <section class="summary">
+        <div class="stat">
+          <small>Channel</small>
+          <h3>{{ channel_info.title }}</h3>
+        </div>
+        <div class="stat">
+          <small>Subscribers</small>
+          <h3>{{ channel_info.subscribers }}</h3>
+        </div>
+        <div class="stat">
+          <small>Total Views</small>
+          <h3>{{ channel_info.total_views }}</h3>
+        </div>
+        <div class="stat">
+          <small>Total Videos</small>
+          <h3>{{ channel_info.total_videos }}</h3>
+        </div>
+      </section>
+
+      <!-- GRAPHS: VIEWS / LIKES / LAST30 -->
+      <section class="graphs">
+        <h3>Top 10 Videos</h3>
+        <div class="imgs">
+          <img src="{{ url_for('static', filename='views.png') }}" alt="views" onerror="this.style.display='none'">
+          <img src="{{ url_for('static', filename='likes.png') }}" alt="likes" onerror="this.style.display='none'">
+        </div>
+        <div class="imgs">
+          <img src="{{ url_for('static', filename='last30.png') }}" alt="last30" onerror="this.style.display='none'">
+        </div>
+      </section>
+
+      <!-- VIDEO SELECT -->
+      <section class="video-form">
+        <form method="post">
+          <label>Select a video from dropdown:</label>
+          <select name="video_id">
+            <option value="">-- choose --</option>
+            {% if videos %}
+              {% for v in videos %}
+                <option value="{{ v.video_id }}">{{ v.title }} — {{ v.views }} views</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+          <div class="or">OR</div>
+          <label>Paste a Video ID (manual):</label>
+          <input name="manual_video_id" placeholder="e.g. dQw4w9WgXcQ" />
+          <button type="submit">Analyze Comments</button>
+        </form>
+      </section>
+      {% endif %}
+
+      <!-- SENTIMENT RESULTS -->
+      {% if sentiment %}
+      <section class="results">
+        <h3>Sentiment Summary</h3>
+        <div class="counts">
+          {% for k,v in sentiment.items() %}
+            <div class="count"><strong>{{ k }}</strong><span>{{ v }}</span></div>
+          {% endfor %}
+        </div>
+
+        <div class="visuals">
+          <img src="{{ url_for('static', filename='wordcloud.png') }}" alt="wordcloud" onerror="this.style.display='none'">
+          <img src="{{ url_for('static', filename='sentiment_pie.png') }}" alt="pie" onerror="this.style.display='none'">
+          <img src="{{ url_for('static', filename='polarity_line.png') }}" alt="polarity" onerror="this.style.display='none'">
+        </div>
+
+        <!-- Topic modeling -->
+        {% if topic_list %}
+        <h3>Topics</h3>
+        <img src="{{ url_for('static', filename='topic_bar.png') }}" alt="topics" onerror="this.style.display='none'">
+        <div class="topic-list">
+          {% for t in topic_list %}
+            <div class="topic-card">
+              <strong>{{ t.topic }}</strong> — {{ t.freq }} mentions<br>
+              <small>{{ t.words }}</small>
+            </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Advanced charts -->
+        <div class="analysis-charts">
+          <img src="{{ url_for('static', filename='sentiment_over_time.png') }}" alt="sentiment over time" onerror="this.style.display='none'">
+          <img src="{{ url_for('static', filename='volume_vs_sentiment.png') }}" alt="volume vs sentiment" onerror="this.style.display='none'">
+        </div>
+
+        <div style="margin-top:14px;">
+          <h4>Sentiment vs Comment Likes</h4>
+          <img src="{{ url_for('static', filename='sentiment_vs_likes.png') }}" alt="sentiment vs likes" style="width:60%;border-radius:8px" onerror="this.style.display='none'">
+        </div>
+
+        <div class="tops">
+          <div>
+            <h4>Top Positive</h4>
+            <ol>{% for c in top_comments.positive %}<li>{{ c }}</li>{% endfor %}</ol>
+          </div>
+          <div>
+            <h4>Top Neutral</h4>
+            <ol>{% for c in top_comments.neutral %}<li>{{ c }}</li>{% endfor %}</ol>
+          </div>
+          <div>
+            <h4>Top Negative</h4>
+            <ol>{% for c in top_comments.negative %}<li>{{ c }}</li>{% endfor %}</ol>
+          </div>
+        </div>
+
+        <div class="actions">
+          <a href="{{ url_for('download_excel') }}" class="btn">Download Excel (.xlsx)</a>
+          <a href="{{ url_for('download_pdf') }}" class="btn secondary">Download PDF</a>
+        </div>
+      </section>
+      {% endif %}
+
+    </main>
+
+    <footer class="foot">Built with — YouTube Comment Sentiment </footer>
+  </div>
+</body>
+</html>
