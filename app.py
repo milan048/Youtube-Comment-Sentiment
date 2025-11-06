@@ -698,18 +698,32 @@ def download_pdf():
     return send_file(pdf_path, as_attachment=True)
 
 # --------------- Run ----------------
+# --------------- Run ----------------
 if __name__ == "__main__":
-    import os, sys
+    import os, sys, time
+
     try:
+        # Make sure required folders exist
         os.makedirs("output", exist_ok=True)
+        os.makedirs("static", exist_ok=True)
+        os.makedirs("static/images", exist_ok=True)
+
+        # Render gives a dynamic port, so bind to it
         port = int(os.environ.get("PORT", 5000))
 
-        print(f"✅ Starting Flask server on port {port}...")
+        print(f"✅ Starting Flask app on 0.0.0.0:{port}")
+        sys.stdout.flush()
+
+        # Run Flask server (disable reloader)
         app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
     except Exception as e:
-        print("❌ Flask failed to start:", e, file=sys.stderr)
-        # Keep process alive so Render scanner finds the port
-        import time
+        # Print any startup error
+        print("❌ Error starting app:", e, file=sys.stderr)
+        sys.stderr.flush()
+
+        # Keep process alive for Render port scan (avoid auto-exit)
         while True:
+            print("⚠️ Keeping service alive for Render port scan...")
+            sys.stdout.flush()
             time.sleep(5)
