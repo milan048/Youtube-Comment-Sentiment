@@ -1,5 +1,26 @@
-# app.py — YouTube Sentiment Pro (Render-Ready & Optimized)
+# app.py — YouTube Sentiment Pro (Render Fixed - Instant Port Binding)
 import os
+from flask import Flask, render_template, request, send_file, redirect, url_for, flash
+import threading
+import sys
+import time
+
+# ---------------- Early Flask Binding ----------------
+app = Flask(__name__, static_folder="static", template_folder="templates")
+app.secret_key = "devkey_js"
+
+def start_flask():
+    """Start Flask early so Render detects open port before heavy imports load."""
+    port = int(os.environ.get("PORT", 10000))
+    print(f"✅ Early Flask startup on 0.0.0.0:{port}")
+    sys.stdout.flush()
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+# Start Flask in background thread before heavy imports
+threading.Thread(target=start_flask, daemon=True).start()
+time.sleep(3)  # Give Render time to detect the open port
+
+# ---------------- Heavy Imports (load after port binding) ----------------
 import io
 import json
 import math
@@ -12,7 +33,6 @@ from textblob import TextBlob
 from googleapiclient.discovery import build
 import isodate
 from datetime import datetime, timedelta, timezone
-from flask import Flask, render_template, request, send_file, redirect, url_for, flash
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -30,7 +50,7 @@ except Exception:
 # ---------------- CONFIG ----------------
 API_KEY = os.getenv("YOUTUBE_API_KEY", "YOUR_API_KEY_HERE")
 if not API_KEY or API_KEY.startswith("YOUR"):
-    raise RuntimeError("Please set a valid YouTube Data API key.")
+    raise RuntimeError("Please set your YOUTUBE_API_KEY as an environment variable.")
 
 MAX_COMMENTS_FAST = 100
 ENABLE_HEAVY_MODE = False
@@ -40,9 +60,6 @@ youtube = build("youtube", "v3", developerKey=API_KEY, static_discovery=False)
 os.makedirs("static", exist_ok=True)
 os.makedirs("static/images", exist_ok=True)
 os.makedirs("output", exist_ok=True)
-
-app = Flask(__name__, static_folder="static", template_folder="templates")
-app.secret_key = "devkey_js"
 
 # ---------------- Helpers ----------------
 def safe_int(x):
@@ -88,11 +105,11 @@ def fetch_latest_videos(playlist_id, max_results=10):
         for it in vres.get("items", []):
             rows.append({
                 "video_id": it["id"],
-                "title": it["snippet"].get("title",""),
+                "title": it["snippet"].get("title", ""),
                 "publishedAt": it["snippet"].get("publishedAt"),
-                "views": safe_int(it["statistics"].get("viewCount",0)),
-                "likes": safe_int(it["statistics"].get("likeCount",0)),
-                "comments": safe_int(it["statistics"].get("commentCount",0)),
+                "views": safe_int(it["statistics"].get("viewCount", 0)),
+                "likes": safe_int(it["statistics"].get("likeCount", 0)),
+                "comments": safe_int(it["statistics"].get("commentCount", 0)),
                 "duration_sec": int(isodate.parse_duration(it["contentDetails"]["duration"]).total_seconds())
             })
         df = pd.DataFrame(rows)
@@ -201,7 +218,6 @@ def index():
             return render_template("index.html", sentiment=counts)
     return render_template("index.html")
 
-# ---------- Download ----------
 @app.route("/download_excel")
 def download_excel():
     p = "output/data.xlsx"
@@ -210,25 +226,8 @@ def download_excel():
     flash("No file found. Please run analysis first.", "error")
     return redirect(url_for("index"))
 
-# ---------- Run (Render Fix) ----------
-if __name__ == "__main__":
-    import sys, time
-    try:
-        os.makedirs("output", exist_ok=True)
-        os.makedirs("static", exist_ok=True)
-        os.makedirs("static/images", exist_ok=True)
-
-        port = int(os.environ.get("PORT", 10000))
-        print(f"✅ Starting Flask app on 0.0.0.0:{port}")
-        sys.stdout.flush()
-
-        time.sleep(2)  # small delay so Render detects port properly
-
-        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-    except Exception as e:
-        print("❌ Error starting app:", e, file=sys.stderr)
-        sys.stderr.flush()
-        while True:
-            print("⚠️ Keeping service alive for Render port scan...")
-            sys.stdout.flush()
-            time.sleep(5)
+# ---------------- Keep Alive for Render ----------------
+while True:
+    print("🟢 Flask app running — Render port bound successfully.")
+    sys.stdout.flush()
+    time.sleep(30)
