@@ -699,9 +699,17 @@ def download_pdf():
 
 # --------------- Run ----------------
 if __name__ == "__main__":
-    # quick check: ensure output directories exist
-    os.makedirs("output", exist_ok=True)
-    
-    # Render free tier port
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True,use_reloader=False)
+    import os, sys
+    try:
+        os.makedirs("output", exist_ok=True)
+        port = int(os.environ.get("PORT", 5000))
+
+        print(f"✅ Starting Flask server on port {port}...")
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+    except Exception as e:
+        print("❌ Flask failed to start:", e, file=sys.stderr)
+        # Keep process alive so Render scanner finds the port
+        import time
+        while True:
+            time.sleep(5)
