@@ -1,9 +1,9 @@
-# app.py — YouTube Sentiment Pro (Render Fixed - Instant Port Binding)
+# app.py — YouTube Comment Sentiment (Render + Flask route fix)
 import os
-from flask import Flask, render_template, request, send_file, redirect, url_for, flash
-import threading
 import sys
+import threading
 import time
+from flask import Flask, render_template, request, send_file, redirect, url_for, flash
 
 # ---------------- Early Flask Binding ----------------
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -16,14 +16,13 @@ def start_flask():
     sys.stdout.flush()
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
-# Start Flask in background thread before heavy imports
+# Start Flask early in a background thread
 threading.Thread(target=start_flask, daemon=True).start()
-time.sleep(3)  # Give Render time to detect the open port
+time.sleep(3)  # Give Render time to detect open port
 
-# ---------------- Heavy Imports (load after port binding) ----------------
+# ---------------- Heavy Imports (load after Flask binding) ----------------
 import io
 import json
-import math
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
@@ -33,13 +32,13 @@ from textblob import TextBlob
 from googleapiclient.discovery import build
 import isodate
 from datetime import datetime, timedelta, timezone
-from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
-import numpy as np
 import seaborn as sns
+import numpy as np
 
-# BERTopic optional
+# Optional BERTopic imports
 try:
     from bertopic import BERTopic
     from sentence_transformers import SentenceTransformer
@@ -48,14 +47,18 @@ except Exception:
     BERTOPIC_AVAILABLE = False
 
 # ---------------- CONFIG ----------------
-API_KEY = os.getenv("YOUTUBE_API_KEY", "YOUR_API_KEY_HERE")
-if not API_KEY or API_KEY.startswith("YOUR"):
-    raise RuntimeError("Please set your YOUTUBE_API_KEY as an environment variable.")
+API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+if not API_KEY:
+    print("⚠️ Warning: YOUTUBE_API_KEY not set. Continuing for demo/testing mode.")
+else:
+    print("✅ YouTube API Key loaded.")
 
 MAX_COMMENTS_FAST = 100
 ENABLE_HEAVY_MODE = False
 
-youtube = build("youtube", "v3", developerKey=API_KEY, static_discovery=False)
+youtube = None
+if API_KEY:
+    youtube = build("youtube", "v3", developerKey=API_KEY, static_discovery=False)
 
 os.makedirs("static", exist_ok=True)
 os.makedirs("static/images", exist_ok=True)
@@ -68,8 +71,10 @@ def safe_int(x):
     except:
         return 0
 
-# ---------- Channel & Videos ----------
+# ---------- Fetch Channel ----------
 def fetch_channel(channel_id):
+    if not youtube:
+        return None, "YouTube API not initialized (no API key)."
     try:
         req = youtube.channels().list(part="snippet,contentDetails,statistics", id=channel_id)
         res = req.execute()
@@ -83,13 +88,16 @@ def fetch_channel(channel_id):
             "subscribers": safe_int(it["statistics"].get("subscriberCount", 0)),
             "total_views": safe_int(it["statistics"].get("viewCount", 0)),
             "total_videos": safe_int(it["statistics"].get("videoCount", 0)),
-            "uploads_playlist": it["contentDetails"]["relatedPlaylists"].get("uploads")
+            "uploads_playlist": it["contentDetails"]["relatedPlaylists"].get("uploads"),
         }
         return ch, None
     except Exception as e:
         return None, f"Channel fetch error: {e}"
 
+# ---------- Fetch Videos ----------
 def fetch_latest_videos(playlist_id, max_results=10):
+    if not youtube:
+        return pd.DataFrame()
     try:
         req = youtube.playlistItems().list(part="snippet,contentDetails", playlistId=playlist_id, maxResults=max_results)
         res = req.execute()
@@ -97,8 +105,6 @@ def fetch_latest_videos(playlist_id, max_results=10):
         if not items:
             return pd.DataFrame()
         video_ids = [it["contentDetails"]["videoId"] for it in items if it.get("contentDetails")]
-        if not video_ids:
-            return pd.DataFrame()
         vreq = youtube.videos().list(part="snippet,statistics,contentDetails", id=",".join(video_ids))
         vres = vreq.execute()
         rows = []
@@ -120,8 +126,10 @@ def fetch_latest_videos(playlist_id, max_results=10):
         print("fetch_latest_videos error:", e)
         return pd.DataFrame()
 
-# ---------- Comments ----------
-def fetch_comments(video_id, max_comments=300):
+# ---------- Fetch Comments ----------
+def fetch_comments(video_id, max_comments=200):
+    if not youtube:
+        return []
     comments = []
     try:
         nextPageToken = None
@@ -139,7 +147,7 @@ def fetch_comments(video_id, max_comments=300):
                 comments.append({
                     "text": sn.get("textDisplay", ""),
                     "likeCount": int(sn.get("likeCount", 0)),
-                    "publishedAt": sn.get("publishedAt")
+                    "publishedAt": sn.get("publishedAt"),
                 })
                 if len(comments) >= max_comments:
                     break
@@ -148,25 +156,6 @@ def fetch_comments(video_id, max_comments=300):
                 break
     except Exception as e:
         print("fetch_comments error:", e)
-    return comments
-
-def fetch_comments_cached(video_id, max_comments=MAX_COMMENTS_FAST, use_cache=True):
-    cache_file = os.path.join("output", f"comments_{video_id}.json")
-    if use_cache and os.path.exists(cache_file):
-        try:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if len(data) > max_comments:
-                    return data[:max_comments]
-                return data
-        except Exception:
-            pass
-    comments = fetch_comments(video_id, max_comments=max_comments)
-    try:
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(comments, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
     return comments
 
 # ---------- Sentiment ----------
@@ -191,42 +180,60 @@ def analyze_comments(comments):
             p = TextBlob(text).sentiment.polarity
             label = "Positive" if p > 0 else ("Negative" if p < 0 else "Neutral")
             s = p
-        rows.append({
-            "comment": text,
-            "likeCount": likes,
-            "publishedAt": pub,
-            "label": label,
-            "score": s
-        })
+        rows.append({"comment": text, "likeCount": likes, "publishedAt": pub, "label": label, "score": s})
     df = pd.DataFrame(rows)
-    if "publishedAt" in df.columns:
+    if not df.empty:
         df["publishedAt"] = pd.to_datetime(df["publishedAt"], errors="coerce", utc=True)
     return df
 
-# ---------- Routes ----------
+# ---------- ROUTES ----------
 @app.route("/", methods=["GET", "POST"])
 def index():
+    context = {"channel_info": None, "videos": None, "sentiment": None,
+               "top_comments": None, "topic_list": None}
     if request.method == "POST":
+        channel_id = request.form.get("channel_id", "").strip()
         video_id = request.form.get("video_id", "").strip()
-        if video_id:
-            comments = fetch_comments_cached(video_id)
+        manual_vid = request.form.get("manual_video_id", "").strip()
+
+        if channel_id:
+            ch, err = fetch_channel(channel_id)
+            if err:
+                flash(err, "error")
+                return render_template("index.html", **context)
+            df_v = fetch_latest_videos(ch["uploads_playlist"], max_results=10)
+            context.update({"channel_info": ch, "videos": df_v.to_dict("records")})
+            return render_template("index.html", **context)
+
+        vid = manual_vid or video_id
+        if vid:
+            comments = fetch_comments(vid)
+            if not comments:
+                flash("No comments found for this video.", "error")
+                return render_template("index.html", **context)
             df = analyze_comments(comments)
-            if df.empty:
-                flash("No comments found.")
-                return render_template("index.html")
-            counts = df["label"].value_counts().to_dict()
-            return render_template("index.html", sentiment=counts)
-    return render_template("index.html")
+            summary = df["label"].value_counts().to_dict()
+            context.update({"sentiment": summary})
+            return render_template("index.html", **context)
+    return render_template("index.html", **context)
 
 @app.route("/download_excel")
 def download_excel():
     p = "output/data.xlsx"
     if os.path.exists(p):
         return send_file(p, as_attachment=True)
-    flash("No file found. Please run analysis first.", "error")
+    flash("No Excel file found. Please run analysis first.", "error")
     return redirect(url_for("index"))
 
-# ---------------- Keep Alive for Render ----------------
+@app.route("/download_pdf")
+def download_pdf():
+    p = "output/report.pdf"
+    if os.path.exists(p):
+        return send_file(p, as_attachment=True)
+    flash("No PDF found. Please run analysis first.", "error")
+    return redirect(url_for("index"))
+
+# ---------- KEEP ALIVE LOOP ----------
 while True:
     print("🟢 Flask app running — Render port bound successfully.")
     sys.stdout.flush()
